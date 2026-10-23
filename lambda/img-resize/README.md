@@ -32,8 +32,10 @@ This writes `build/lambda-img-resize.zip` with sharp's linux-arm64 binary.
 The function SHOULD connect as `img_resize`, which can read `items` and
 write only the image cache's bookkeeping tables.
 
-1. Create a role named `img_resize` with a generated password (in Neon:
-   the branch's Roles page).
+1. Create the role with SQL, using a password from `openssl rand -hex 32`:
+   `CREATE ROLE img_resize WITH LOGIN PASSWORD '...';`. On Neon this
+   MUST NOT be done from the Roles page: roles created there join
+   `neon_superuser` and can write every table.
 2. Run `sql/048_img_resize_role.sql` in the SQL editor. It grants that
    role's table privileges and does nothing if the role is missing.
 3. Build the connection string from the app's `DATABASE_URL` with the

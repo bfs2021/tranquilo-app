@@ -104,6 +104,21 @@ describe("configFromEnv", () => {
     }
   });
 
+  it("carries an optional session token without exposing it", () => {
+    const env = {
+      S3_BUCKET: "b",
+      S3_REGION: "r",
+      S3_ACCESS_KEY_ID: "ASIA...",
+      S3_SECRET_ACCESS_KEY: "s",
+      IMG_CDN_BASE_URL: CDN,
+    };
+    expect(store.configFromEnv(env).sessionToken()).toBe("");
+    const cfg = store.configFromEnv({ ...env, S3_SESSION_TOKEN: "TOKENVALUE" });
+    expect(cfg.enabled).toBe(true);
+    expect(cfg.sessionToken()).toBe("TOKENVALUE");
+    expect(JSON.stringify(cfg)).not.toContain("TOKENVALUE");
+  });
+
   it("never puts the secret anywhere it could be logged", () => {
     const cfg = store.configFromEnv({
       S3_BUCKET: "b",

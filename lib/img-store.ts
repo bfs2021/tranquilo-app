@@ -61,6 +61,7 @@ function configFromEnv(env?: any): any {
   const region = e.S3_REGION || "";
   const keyId = e.S3_ACCESS_KEY_ID || "";
   const secretValue = e.S3_SECRET_ACCESS_KEY || "";
+  const sessionTokenValue = e.S3_SESSION_TOKEN || "";
   const cdnBaseUrl = String(e.IMG_CDN_BASE_URL || "").replace(/\/+$/, "");
 
   const enabled = !!(bucket && region && keyId && secretValue && cdnBaseUrl);
@@ -76,6 +77,10 @@ function configFromEnv(env?: any): any {
   Object.defineProperty(config, "secret", {
     enumerable: false,
     value: () => secretValue,
+  });
+  Object.defineProperty(config, "sessionToken", {
+    enumerable: false,
+    value: () => sessionTokenValue,
   });
   return config;
 }

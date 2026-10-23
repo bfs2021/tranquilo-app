@@ -45,11 +45,15 @@ function signRequest(opts: any): any {
 
   // content-type is signed only when actually sent (PUT) -- a signed header
   // that is absent, or an unsigned header that is present, is a mismatch.
+  const sessionToken = opts.sessionToken;
   const canonicalHeaders =
     `${contentType ? `content-type:${contentType}\n` : ""}host:${host}\n` +
     `x-amz-content-sha256:${payloadHash}\n` +
-    `x-amz-date:${amzDate}\n`;
-  const signedHeaders = `${contentType ? "content-type;" : ""}host;x-amz-content-sha256;x-amz-date`;
+    `x-amz-date:${amzDate}\n` +
+    `${sessionToken ? `x-amz-security-token:${sessionToken}\n` : ""}`;
+  const signedHeaders =
+    `${contentType ? "content-type;" : ""}host;x-amz-content-sha256;x-amz-date` +
+    `${sessionToken ? ";x-amz-security-token" : ""}`;
 
   const canonicalRequest = [
     method,
@@ -86,6 +90,16 @@ function signRequest(opts: any): any {
   };
 }
 
+// Set only for temporary credentials, such as a Lambda's IAM role.
+function sessionTokenOf(config: any): string {
+  return config.sessionToken ? config.sessionToken() : "";
+}
+
+function securityTokenHeader(config: any): Record<string, string> {
+  const token = sessionTokenOf(config);
+  return token ? { "x-amz-security-token": token } : {};
+}
+
 function amzDateNow(now?: any): string {
   return (now || new Date()).toISOString().replace(/[:-]|\.\d{3}/g, "");
 }
@@ -115,6 +129,7 @@ async function putObject(
     region: config.region,
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secret(),
+    sessionToken: sessionTokenOf(config),
   });
 
   try {
@@ -126,6 +141,7 @@ async function putObject(
           "content-type": contentType,
           "x-amz-content-sha256": payloadHash,
           "x-amz-date": amzDate,
+          ...securityTokenHeader(config),
           authorization: signed.authorization,
         },
         body: body,
@@ -164,6 +180,7 @@ async function getObject(config: any, key: any, opts?: any): Promise<any> {
     region: config.region,
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secret(),
+    sessionToken: sessionTokenOf(config),
   });
 
   try {
@@ -174,6 +191,7 @@ async function getObject(config: any, key: any, opts?: any): Promise<any> {
         headers: {
           "x-amz-content-sha256": payloadHash,
           "x-amz-date": amzDate,
+          ...securityTokenHeader(config),
           authorization: signed.authorization,
         },
       },

@@ -71,6 +71,18 @@ describe("signRequest", () => {
     );
   });
 
+  it("signs the session token when temporary role credentials supply one", () => {
+    const withToken = Object.assign({}, BASE, {
+      sessionToken: "IQoJb3JpZ2luX2VjEXAMPLE",
+    });
+    expect(s3.signRequest(withToken).signedHeaders).toBe(
+      "content-type;host;x-amz-content-sha256;x-amz-date;x-amz-security-token",
+    );
+    expect(s3.signRequest(withToken).signature).not.toBe(
+      s3.signRequest(BASE).signature,
+    );
+  });
+
   it("scopes the credential to date, region and service", () => {
     expect(s3.signRequest(BASE).authorization).toContain(
       "Credential=AKIAEXAMPLE/20260823/us-east-1/s3/aws4_request",
@@ -132,6 +144,27 @@ describe("putObject", () => {
     expect(seen.init.method).toBe("PUT");
     expect(seen.init.headers.authorization).toMatch(/^AWS4-HMAC-SHA256 /);
     expect(seen.init.headers["x-amz-content-sha256"]).toMatch(/^[0-9a-f]{64}$/);
+  });
+
+  it("sends the session token header only when the config has one", async () => {
+    const seen: any[] = [];
+    const capture = {
+      fetch: async (_url: any, init: any) => {
+        seen.push(init.headers);
+        return { ok: true, status: 200, headers: { get: () => null } };
+      },
+    };
+    await s3.putObject(config, "k", Buffer.from("x"), "image/png", capture);
+    await s3.putObject(
+      Object.assign({}, config, { sessionToken: () => "TOKEN" }),
+      "k",
+      Buffer.from("x"),
+      "image/png",
+      capture,
+    );
+    expect(seen[0]["x-amz-security-token"]).toBeUndefined();
+    expect(seen[1]["x-amz-security-token"]).toBe("TOKEN");
+    expect(seen[1].authorization).toContain("x-amz-security-token");
   });
 
   it("reports an HTTP failure instead of throwing", async () => {

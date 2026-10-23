@@ -1,0 +1,198 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >-
+  Image cache miss path: a Lambda that fetches, resizes and stores one
+  image, reachable only through its own CloudFront distribution.
+
+Parameters:
+  CodeBucket:
+    Type: String
+    Description: Private S3 bucket holding the deployment zip.
+  CodeKey:
+    Type: String
+    Description: Object key of the zip from scripts/build-lambda-img-resize.mts.
+  ImageBucket:
+    Type: String
+    Description: Bucket the image cache writes to (the app's S3_BUCKET).
+  ImageBucketRegion:
+    Type: String
+    Default: us-east-1
+    Description: Region of ImageBucket (the app's S3_REGION).
+  CdnBaseUrl:
+    Type: String
+    AllowedPattern: "^https://.+"
+    Description: Public base URL of cached images (the app's IMG_CDN_BASE_URL).
+  DatabaseUrl:
+    Type: String
+    NoEcho: true
+    Description: Postgres connection string (the app's DATABASE_URL).
+  SentryDsn:
+    Type: String
+    NoEcho: true
+    Default: ""
+    Description: Optional. Leave empty to skip error reporting.
+  Runtime:
+    Type: String
+    Default: nodejs24.x
+    AllowedValues: [nodejs24.x, nodejs22.x]
+  MemorySize:
+    Type: Number
+    Default: 1536
+    MinValue: 512
+    MaxValue: 4096
+    Description: MB. Also sets CPU share; resizing large originals is CPU-bound.
+  ReservedConcurrency:
+    Type: Number
+    Default: 0
+    MinValue: 0
+    Description: >-
+      Maximum simultaneous invocations. 0 leaves it unset; accounts with a
+      low concurrency quota cannot reserve any.
+
+Conditions:
+  HasSentry: !Not [!Equals [!Ref SentryDsn, ""]]
+  HasReservedConcurrency: !Not [!Equals [!Ref ReservedConcurrency, 0]]
+
+Resources:
+  FunctionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal: { Service: lambda.amazonaws.com }
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: logs
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: [logs:CreateLogStream, logs:PutLogEvents]
+                Resource: !GetAtt LogGroup.Arn
+        - PolicyName: write-image-cache
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: s3:PutObject
+                Resource: !Sub arn:${AWS::Partition}:s3:::${ImageBucket}/img-cache/*
+
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub /aws/lambda/${AWS::StackName}
+      RetentionInDays: 30
+
+  Function:
+    Type: AWS::Lambda::Function
+    Properties:
+      FunctionName: !Ref AWS::StackName
+      Description: Image cache miss path (fetch, resize, store).
+      Runtime: !Ref Runtime
+      Architectures: [arm64]
+      Handler: index.handler
+      Code:
+        S3Bucket: !Ref CodeBucket
+        S3Key: !Ref CodeKey
+      Role: !GetAtt FunctionRole.Arn
+      MemorySize: !Ref MemorySize
+      # Origin fetch alone may take 20s; a large TIFF resize adds more.
+      Timeout: 60
+      ReservedConcurrentExecutions:
+        !If [HasReservedConcurrency, !Ref ReservedConcurrency, !Ref AWS::NoValue]
+      LoggingConfig:
+        LogGroup: !Ref LogGroup
+      Environment:
+        Variables:
+          DATABASE_URL: !Ref DatabaseUrl
+          S3_BUCKET: !Ref ImageBucket
+          S3_REGION: !Ref ImageBucketRegion
+          IMG_CDN_BASE_URL: !Ref CdnBaseUrl
+          SENTRY_DSN: !If [HasSentry, !Ref SentryDsn, !Ref AWS::NoValue]
+          SENTRY_ENVIRONMENT: production
+          NODE_OPTIONS: --enable-source-maps
+
+  FunctionUrl:
+    Type: AWS::Lambda::Url
+    Properties:
+      TargetFunctionArn: !GetAtt Function.Arn
+      # IAM-only: CloudFront signs every request, nothing else can call it.
+      AuthType: AWS_IAM
+      InvokeMode: BUFFERED
+
+  OriginAccessControl:
+    Type: AWS::CloudFront::OriginAccessControl
+    Properties:
+      OriginAccessControlConfig:
+        Name: !Sub ${AWS::StackName}-lambda
+        OriginAccessControlOriginType: lambda
+        SigningBehavior: always
+        SigningProtocol: sigv4
+
+  CachePolicy:
+    Type: AWS::CloudFront::CachePolicy
+    Properties:
+      CachePolicyConfig:
+        Name: !Sub ${AWS::StackName}-by-image
+        Comment: One cache entry per image; TTL follows the function's Cache-Control.
+        MinTTL: 0
+        DefaultTTL: 0
+        MaxTTL: 31536000
+        ParametersInCacheKeyAndForwardedToOrigin:
+          EnableAcceptEncodingGzip: false
+          EnableAcceptEncodingBrotli: false
+          HeadersConfig: { HeaderBehavior: none }
+          CookiesConfig: { CookieBehavior: none }
+          QueryStringsConfig:
+            QueryStringBehavior: whitelist
+            QueryStrings: [source, id, tier]
+
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Enabled: true
+        Comment: !Sub ${AWS::StackName} image resize
+        PriceClass: PriceClass_100
+        HttpVersion: http2and3
+        Origins:
+          - Id: resize-function
+            DomainName: !Select [2, !Split ["/", !GetAtt FunctionUrl.FunctionUrl]]
+            OriginAccessControlId: !GetAtt OriginAccessControl.Id
+            CustomOriginConfig:
+              OriginProtocolPolicy: https-only
+              OriginSSLProtocols: [TLSv1.2]
+        DefaultCacheBehavior:
+          TargetOriginId: resize-function
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD]
+          CachedMethods: [GET, HEAD]
+          CachePolicyId: !Ref CachePolicy
+
+  InvokeUrlPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunctionUrl
+      FunctionUrlAuthType: AWS_IAM
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}
+
+  # Function URLs created since late 2025 also require InvokeFunction.
+  InvokePermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref Function
+      Action: lambda:InvokeFunction
+      Principal: cloudfront.amazonaws.com
+      SourceArn: !Sub arn:${AWS::Partition}:cloudfront::${AWS::AccountId}:distribution/${Distribution}
+
+Outputs:
+  ResizeBaseUrl:
+    Description: Where the image proxy sends a cache miss, as ?source=&id=&tier=.
+    Value: !Sub https://${Distribution.DomainName}/
+  FunctionName:
+    Value: !Ref Function
+  DistributionId:
+    Value: !Ref Distribution

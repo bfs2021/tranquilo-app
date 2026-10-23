@@ -1,6 +1,6 @@
 // Bundles lambda/img-resize/handler.ts into build/lambda-img-resize.zip for
 // a Node.js arm64 Lambda. Upload the zip to S3 and point the
-// infra/aws/img-resize.yaml stack's CodeKey at it.
+// lambda/img-resize/template.yaml stack's CodeKey at it.
 //
 // sharp stays external: its native binary must be the linux-arm64 build,
 // not the one installed for this machine.

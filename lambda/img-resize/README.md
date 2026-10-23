@@ -16,7 +16,7 @@ function only after the image proxy is pointed at the stack's
 | IAM role | Lets the function write `img-cache/*` in the image bucket and write its logs. No access keys. |
 | Lambda function (arm64) | Runs `lambda/img-resize/handler.ts`. |
 | Function URL (`AWS_IAM`) | The function's HTTPS endpoint. Only signed requests are accepted. |
-| CloudFront distribution + origin access control | Signs requests to the function URL and caches each redirect. |
+| CloudFront distribution + origin access control | Signs requests to the function URL, caches each redirect, and passes the visitor's IP for the per-visitor rate limit. |
 | Log group | Function logs, kept 30 days. |
 
 ## Build the zip
@@ -26,6 +26,18 @@ bun run build:lambda
 ```
 
 This writes `build/lambda-img-resize.zip` with sharp's linux-arm64 binary.
+
+## Database role
+
+The function SHOULD connect as `img_resize`, which can read `items` and
+write only the image cache's bookkeeping tables.
+
+1. Create a role named `img_resize` with a generated password (in Neon:
+   the branch's Roles page).
+2. Run `sql/048_img_resize_role.sql` in the SQL editor. It grants that
+   role's table privileges and does nothing if the role is missing.
+3. Build the connection string from the app's `DATABASE_URL` with the
+   user and password swapped for the new role's.
 
 ## First deploy (AWS console)
 
@@ -40,9 +52,8 @@ This writes `build/lambda-img-resize.zip` with sharp's linux-arm64 binary.
    - `CodeBucket`, `CodeKey`: from step 1.
    - `ImageBucket`, `ImageBucketRegion`, `CdnBaseUrl`: copy the app's
      `S3_BUCKET`, `S3_REGION` and `IMG_CDN_BASE_URL` values.
-   - `DatabaseUrl`: the app's `DATABASE_URL`. A Postgres role limited
-     to the image cache tables and `SELECT` on `items` SHOULD be used
-     instead of the owner role.
+   - `DatabaseUrl`: a connection string for the `img_resize` role, not
+     the owner role (see "Database role" below).
    - `SentryDsn`: optional.
    - Leave the rest at their defaults.
 5. **Capabilities.** Tick "I acknowledge that AWS CloudFormation might

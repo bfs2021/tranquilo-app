@@ -11,6 +11,7 @@
       "src/**",
       "api/**",
       "lib/**",
+      "lambda/**",
       "scripts/**",
       "tests/**",
       "vite.config.mts",

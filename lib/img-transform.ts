@@ -286,6 +286,15 @@ async function transformForTier(buf: any, contentType: any, tier: any) {
   return { buf: buf, contentType: contentType };
 }
 
+// A Met filename with an en dash (U+2013, not a hyphen) once 500'd the
+// shed path: HTTP header values can't hold it. encodeURI() would be
+// worse -- it also escapes "%", double-encoding the many already-encoded
+// Commons URLs. This encodes exactly Node's real rejection set (above
+// U+00FF, control chars) and nothing else, idempotently.
+function headerSafeLocation(url: any) {
+  return String(url).replace(/[^\x20-\xFF]/g, (ch) => encodeURIComponent(ch));
+}
+
 export {
   ALLOWED_ORIGIN_HOSTS,
   CACHE_CONTROL_HEADER,
@@ -293,6 +302,7 @@ export {
   DISPLAY_MAX_DIMENSION,
   fetchOrigin,
   fetchOriginOnce,
+  headerSafeLocation,
   hostOf,
   type ImgTier,
   isAllowedOrigin,

@@ -9,7 +9,7 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "html", "json-summary", "lcov"],
-      include: ["api/**", "lib/**", "src/**", "scripts/**"],
+      include: ["api/**", "lib/**", "lambda/**", "src/**", "scripts/**"],
       exclude: [
         "**/*.d.ts",
         "src/data/config.generated.ts",

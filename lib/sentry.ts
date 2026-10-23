@@ -30,7 +30,8 @@ function scrubEvent(event: any) {
 
 Sentry.init({
   dsn: process.env.SENTRY_DSN,
-  environment: process.env.VERCEL_ENV || "development",
+  environment:
+    process.env.SENTRY_ENVIRONMENT || process.env.VERCEL_ENV || "development",
   sendDefaultPii: false,
   // Off (0) unless explicitly turned on via env -- a sampling/cost decision,
   // not a code change. Set SENTRY_TRACES_SAMPLE_RATE in Vercel to enable.

@@ -19,6 +19,9 @@ Temp/
 # longer needs to be committed.
 /dist/
 
+# `bun run build:lambda` output.
+/build/
+
 # `bun run generate-config` output -- see config.toml's own header
 # comment. Regenerated automatically before build/typecheck (package.json);
 # run it by hand after editing config.toml without running one of those.

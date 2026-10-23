@@ -10,6 +10,7 @@
     "dev": "bun x vite",
     "vercel": "bun x vercel dev",
     "build": "bun run generate-config && bun run generate-env && bun x vite build",
+    "build:lambda": "bun scripts/build-lambda-img-resize.mts",
     "preview": "bun run build && bun x vite preview",
     "generate-config": "bun scripts/generate-config.mts",
     "generate-env": "bun scripts/generate-env.mts",

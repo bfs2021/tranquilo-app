@@ -82,7 +82,7 @@ describe("imageFetchHeaders", () => {
 
 describe("the proxy actually uses it", () => {
   const proxy = readFileSync(
-    path.join(__dirname, "../api/img/[source]/[id]/[tier].ts"),
+    path.join(__dirname, "../lib/img-transform.ts"),
     "utf8",
   );
 

@@ -104,6 +104,21 @@ async function resolveMiss(
   if (!isImgTier(tier)) {
     return { kind: "error", status: 400, reason: "bad-tier" };
   }
+  const cacheKey = `${source}:${id}:${tier}`;
+
+  // A caller may arrive after another request already stored the image.
+  const hit = store.resolveHit(
+    await store.touchAndResolve(sql, cacheKey),
+    s3Config,
+  );
+  if (hit.from === "cdn") {
+    return {
+      kind: "redirect",
+      url: hit.url,
+      cacheControl: CACHE_CONTROL_HEADER,
+      reason: "hit",
+    };
+  }
 
   const originUrl = await lookupOriginUrl(sql, source, id, tier);
   if (!originUrl) {
@@ -113,7 +128,6 @@ async function resolveMiss(
     return { kind: "error", status: 400, reason: "disallowed-origin" };
   }
   const host = hostOf(originUrl);
-  const cacheKey = `${source}:${id}:${tier}`;
 
   await bestEffort([guard.bumpStat(sql, source, tier, "misses")]);
 

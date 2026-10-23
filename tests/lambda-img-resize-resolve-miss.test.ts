@@ -83,6 +83,29 @@ beforeEach(() => {
   lookupOriginUrl.mockResolvedValue(ORIGIN);
   isAllowedOrigin.mockReturnValue(true);
   canShedToOrigin.mockReturnValue(true);
+  touchAndResolve.mockResolvedValue(null);
+  resolveHit.mockReturnValue({ from: "none" });
+});
+
+describe("already cached", () => {
+  it("redirects to the stored copy without fetching or counting a miss", async () => {
+    touchAndResolve.mockResolvedValue({ object_key: "k" });
+    resolveHit.mockReturnValue({
+      from: "cdn",
+      url: "https://cdn.tranquilo.art/k",
+    });
+    const r = await resolveMiss(sql, s3Config, params, alert);
+    expect(r).toEqual({
+      kind: "redirect",
+      url: "https://cdn.tranquilo.art/k",
+      cacheControl: "public, max-age=31536000, immutable",
+      reason: "hit",
+    });
+    expect(touchAndResolve).toHaveBeenCalledWith(sql, "met:1:display");
+    expect(bumpStat).not.toHaveBeenCalledWith(sql, "met", "display", "misses");
+    expect(noteRequest).not.toHaveBeenCalled();
+    expect(fetchOrigin).not.toHaveBeenCalled();
+  });
 });
 
 describe("request validation", () => {
@@ -151,11 +174,14 @@ describe("admission", () => {
   it("falls back to the cached display image for an unadmitted lightbox", async () => {
     canShedToOrigin.mockReturnValue(false);
     noteRequest.mockResolvedValue({ admit: false, requests: 1 });
-    touchAndResolve.mockResolvedValue({ object_key: "k" });
-    resolveHit.mockReturnValue({
-      from: "cdn",
-      url: "https://cdn.tranquilo.art/k",
-    });
+    touchAndResolve.mockImplementation(async (_sql, key) =>
+      key === "met:1:display" ? { object_key: "k" } : null,
+    );
+    resolveHit.mockImplementation((entry) =>
+      entry
+        ? { from: "cdn", url: "https://cdn.tranquilo.art/k" }
+        : { from: "none" },
+    );
 
     const r = await resolveMiss(
       sql,

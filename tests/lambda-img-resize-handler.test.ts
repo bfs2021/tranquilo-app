@@ -13,12 +13,21 @@ vi.mock("../lib/img-store.ts", () => ({ configFromEnv }));
 const reportError = vi.fn();
 vi.mock("../lib/sentry.ts", () => ({ reportError }));
 
-const { handler, s3EnvFrom, _resetAlerts } = await import(
+const acquireVisitorToken = vi.fn();
+vi.mock("../lib/img-visitor-rate-limit.ts", () => ({
+  acquireVisitorToken,
+  retryAfterSeconds: () => 2,
+}));
+
+const { handler, s3EnvFrom, viewerIp, _resetAlerts } = await import(
   "../lambda/img-resize/handler.ts"
 );
 
-function event(qs: Record<string, string>) {
-  return { queryStringParameters: qs };
+function event(
+  qs: Record<string, string>,
+  headers: Record<string, string> = {},
+) {
+  return { queryStringParameters: qs, headers };
 }
 const params = { source: "met", id: "1", tier: "display" };
 
@@ -27,6 +36,55 @@ beforeEach(() => {
   _resetAlerts();
   getSql.mockReturnValue({});
   configFromEnv.mockReturnValue({ enabled: true });
+  acquireVisitorToken.mockResolvedValue({ allowed: true, reason: "ok" });
+});
+
+describe("viewerIp", () => {
+  it("reads the visitor from CloudFront's viewer address, without the port", () => {
+    expect(
+      viewerIp(
+        event(params, { "cloudfront-viewer-address": "203.0.113.7:51234" }),
+      ),
+    ).toBe("203.0.113.7");
+    expect(
+      viewerIp(
+        event(params, { "cloudfront-viewer-address": "2001:db8::1:443" }),
+      ),
+    ).toBe("2001:db8::1");
+  });
+
+  it("is null without that header, never CloudFront's own address", () => {
+    const e: any = event(params, { "x-forwarded-for": "198.51.100.1" });
+    e.requestContext = { http: { sourceIp: "198.51.100.1" } };
+    expect(viewerIp(e)).toBeNull();
+  });
+});
+
+describe("visitor rate limit", () => {
+  it("spends one token for the viewer before resolving", async () => {
+    resolveMiss.mockResolvedValue({ kind: "unavailable", reason: "x" });
+    await handler(
+      event(params, { "cloudfront-viewer-address": "203.0.113.7:1" }),
+    );
+    expect(acquireVisitorToken).toHaveBeenCalledWith(
+      expect.anything(),
+      "203.0.113.7",
+    );
+  });
+
+  it("429s an exhausted visitor without resolving", async () => {
+    acquireVisitorToken.mockResolvedValue({
+      allowed: false,
+      reason: "rate-limited",
+    });
+    const r = await handler(
+      event(params, { "cloudfront-viewer-address": "203.0.113.7:1" }),
+    );
+    expect(r.statusCode).toBe(429);
+    expect(r.headers["retry-after"]).toBe("2");
+    expect(r.headers["cache-control"]).toBe("no-store");
+    expect(resolveMiss).not.toHaveBeenCalled();
+  });
 });
 
 describe("request validation", () => {

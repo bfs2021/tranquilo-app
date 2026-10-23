@@ -3,6 +3,10 @@
 import { getSql } from "../../lib/db.ts";
 import * as store from "../../lib/img-store.ts";
 import { headerSafeLocation } from "../../lib/img-transform.ts";
+import {
+  acquireVisitorToken,
+  retryAfterSeconds,
+} from "../../lib/img-visitor-rate-limit.ts";
 import * as sentry from "../../lib/sentry.ts";
 import { resolveMiss } from "./resolve-miss.ts";
 
@@ -19,6 +23,15 @@ function s3EnvFrom(env: Record<string, string | undefined>) {
     S3_SECRET_ACCESS_KEY: env.AWS_SECRET_ACCESS_KEY,
     S3_SESSION_TOKEN: env.AWS_SESSION_TOKEN,
   };
+}
+
+// The function only ever sees CloudFront's address, so the visitor comes
+// from CloudFront-Viewer-Address ("ip:port"). Null means no limit applies.
+function viewerIp(event: any): string | null {
+  const address = event?.headers?.["cloudfront-viewer-address"];
+  if (!address) return null;
+  const portAt = address.lastIndexOf(":");
+  return portAt > 0 ? address.slice(0, portAt) : address;
 }
 
 // Same error name and alert_key tag as the Vercel proxy, so existing
@@ -67,6 +80,16 @@ async function handler(event: any): Promise<any> {
     return json(500, { error: "Database or S3 is not configured" });
   }
 
+  const verdict = await acquireVisitorToken(sql, viewerIp(event) as any);
+  if (!verdict.allowed) {
+    const retryAfter = retryAfterSeconds();
+    return json(
+      429,
+      { error: "Too many requests", retryAfter },
+      { "retry-after": String(retryAfter) },
+    );
+  }
+
   try {
     const result = await resolveMiss(
       sql,
@@ -104,4 +127,4 @@ function _resetAlerts() {
   alertedAt.clear();
 }
 
-export { _resetAlerts, handler, s3EnvFrom };
+export { _resetAlerts, handler, s3EnvFrom, viewerIp };

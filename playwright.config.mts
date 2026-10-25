@@ -2,6 +2,17 @@
 // performs, in a real browser.
 
 import { defineConfig, devices } from "@playwright/test";
+import { DEFAULT_LOCALE, LOCALES } from "./src/i18n/locales.ts";
+
+// The full suite runs in English; each other shipped locale also runs the
+// language sweep, in a browser asking for that language.
+const localeProjects = LOCALES.filter(
+  (l) => l.status === "shipped" && l.code !== DEFAULT_LOCALE,
+).map((l) => ({
+  name: `chromium-${l.code}`,
+  testMatch: "**/locale-sweep.spec.mts",
+  use: { ...devices["Desktop Chrome"], locale: l.code },
+}));
 
 export default defineConfig({
   testDir: "tests/e2e",
@@ -29,5 +40,8 @@ export default defineConfig({
     reuseExistingServer: !process.env.CI,
     timeout: 60_000,
   },
-  projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
+  projects: [
+    { name: "chromium", use: { ...devices["Desktop Chrome"] } },
+    ...localeProjects,
+  ],
 });

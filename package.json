@@ -19,6 +19,7 @@
     "db:migrate:dev": "prisma migrate dev --skip-generate",
     "db:migrate:deploy": "prisma migrate deploy",
     "db:migrate:status": "prisma migrate status",
+    "translations:coverage": "bun scripts/translation_coverage.mts",
     "typecheck": "bun run generate-config && tsc --noEmit",
     "lint": "biome check .",
     "lint:fix": "biome check --write .",

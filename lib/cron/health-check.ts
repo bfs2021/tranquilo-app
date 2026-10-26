@@ -9,12 +9,15 @@
 //      every live source, alerting only on a genuine failure
 //      (non-2xx/timeout/network error), not mere slowness.
 //   2. image_load_failed analytics events in the last 24h, per source.
+//   3. Refused /api/items requests (429/400) in the last 24h -- see
+//      lib/api-items-refusals.ts.
 //
 // Required env vars: DATABASE_URL, CRON_SECRET, RESEND_API_KEY,
 // SUBMIT_NOTIFY_EMAIL.
 
 import * as Sentry from "@sentry/node";
 import { list } from "@vercel/blob";
+import { checkApiItemsRefusals } from "../api-items-refusals.ts";
 import * as blobOps from "../blob-ops.ts";
 import { getSql } from "../db.ts";
 import * as cacheAlerts from "../img-cache-alerts.ts";
@@ -365,6 +368,7 @@ export default async function handler(req: any, res: any) {
     alerts = alerts.concat(await cacheAlerts.checkEvictionThrash(client));
     alerts = alerts.concat(await cacheAlerts.checkRateLimits(client));
     alerts = alerts.concat(await cacheAlerts.checkShedReasons(client));
+    alerts = alerts.concat(await checkApiItemsRefusals());
 
     if (alerts.length === 0) {
       // Flushed before the response, not merely before returning --
